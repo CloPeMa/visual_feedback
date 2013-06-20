@@ -12,8 +12,10 @@ import math
 import cv
 import os.path
 import pickle
+import logging
 from visual_feedback_utils import Vector2D
 from clothing_models import Models
+from datetime import datetime
 
 SHOW_CONTOURS = True 			# Draw the contours to the annotated image?
 SHOW_INIT_PTS = False 			# Draw the center and top points to the image?
@@ -64,7 +66,13 @@ class ShapeFitter:
         self.SILENT = SILENT
         self.flann = pyflann.FLANN()
         
-    
+    #DEBUG - sindljan
+    def exitIfKeyPressed(self,key):
+        char = ""
+        print "Press %s to exit. For continue press something else." % key
+        char  = sys.stdin.read(1)
+        if( char == key):
+            sys.exit()
 
     #Returns the nearest points, the model, and the fitted model
     def fit(self,model,contour,img_annotated=None,img=None):
@@ -76,7 +84,6 @@ class ShapeFitter:
             height = max(ys) - min(ys)
             cv.Set(img_annotated,cv.CV_RGB(255,255,255))
         model.set_image(cv.CloneImage(img_annotated))
-        
         shape_contour = contour
         
         if SHOW_CONTOURS:
@@ -86,7 +93,7 @@ class ShapeFitter:
             (real_center,real_top,real_theta,real_scale) = get_principle_info(shape_contour)
             if SHOW_UNSCALED_MODEL:
                 model.draw_to_image(img_annotated,cv.CV_RGB(0,0,255))
-            model_contour = model.vertices_dense(constant_length=False,density=30)
+            model_contour = model.vertices_dense(constant_length=False,density=30,includeFoldLine = False)
             (model_center,model_top,model_theta,model_scale) = get_principle_info(model_contour)
             displ = displacement(model_center,real_center)
             
@@ -104,58 +111,167 @@ class ShapeFitter:
                 cv.WaitKey()
             
             angle = model_theta - real_theta
-            if self.ORIENT_OPT:
-                angle = 0
+            #if self.ORIENT_OPT:
+            #    angle = 0
             scale = real_scale/float(model_scale)
             if scale < 0.25:
                 scale = 1
             model_trans = translate_poly(model.polygon_vertices(),displ)
             model_rot = rotate_poly(model_trans,-1*angle,real_center)
             model_scaled = scale_poly(model_rot,scale,real_center)
+                      
+            """ DEBUG
+            print "/**************Test****************/"
+            A = [ (int(pt[0]),int(pt[1])) for pt in model_trans]
+            B = [ (int(pt[0]),int(pt[1])) for pt in model_rot]
+            C = [ (int(pt[0]),int(pt[1])) for pt in model_scaled]
+            cv.NamedWindow("Debug window")
+            im = cv.CloneImage(img_annotated)
+            model.draw_contour(im,cv.CV_RGB(100,100,100),2)
+            cv.DrawContours(im,shape_contour,cv.CV_RGB(255,0,0),cv.CV_RGB(255,0,0),0,1,8,(0,0))
+            draw_pt(im,real_top,cv.CV_RGB(255,0,0))
+            draw_pt(im,real_center,cv.CV_RGB(255,0,0))
+            draw_pt(im,model_top,cv.CV_RGB(100,100,100))
+            draw_pt(im,model_center,cv.CV_RGB(100,100,100))
+            cv.PolyLine(im,[A],1,cv.CV_RGB(255,0,0),1)   
+            cv.ShowImage("Debug window",im)
+            cv.WaitKey()            
+            cv.PolyLine(im,[B],1,cv.CV_RGB(0,255,0),1)  
+            cv.ShowImage("Debug window",im)
+            cv.WaitKey()             
+            cv.PolyLine(im,[C],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Debug window",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Debug window")
+            print "/************EndOfTest*************/"
+            self.exitIfKeyPressed("c");
+            #"""
                
             #(model_center,model_top,model_theta,model_scale) = get_principle_info(model_scaled)
         
                 
-                #Do the same to the actual model
-
-            model.translate(displ)
+            #Do the same to the actual model
+            
+            # translate model
+            model.translate(displ,True)
+            """ DEBUG
+            print "/**************Test****************/"
+            cv.NamedWindow("Translate model")
+            im = cv.CloneImage(img_annotated)
+            cv.PolyLine(im,[model.polygon_vertices_int()],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Translate model",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Translate model")
+            print "/************EndOfTest*************/"
+            #"""
+            
+            #rotate model
             if self.ROTATE:
-                model.rotate(-1*angle,real_center)
-            model.scale(scale,real_center)
-        
+                model.rotate(-1*angle,real_center,True)
+            """ DEBUG
+            print "/**************Test****************/"
+            cv.NamedWindow("Rotate model")
+            im = cv.CloneImage(img_annotated)
+            cv.PolyLine(im,[model.polygon_vertices_int()],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Rotate model",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Rotate model")
+            print "/************EndOfTest*************/"
+            #"""
+                
+            #scale model
+            model.scale(scale,real_center,True)       
             if SHOW_SCALED_MODEL:
                 model.draw_to_image(img_annotated,cv.CV_RGB(0,0,255))
-    
+            """ DEBUG
+            print "/**************Test****************/"
+            cv.NamedWindow("Scale model")
+            im = cv.CloneImage(img_annotated)
+            cv.PolyLine(im,[model.polygon_vertices_int()],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Scale model",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Scale model")
+            print "/************EndOfTest*************/"
+            #"""
+
         self.printout("Energy is: %f"%model.score(shape_contour))
         self.printout("Shape contour has %d points"%(len(shape_contour)))
         sparse_shape_contour = make_sparse(shape_contour,1000)
-            
+        """ DEBUG
+        print "/**************Test****************/"
+        cv.NamedWindow("Sparse_shape_contour model")
+        im = cv.CloneImage(img_annotated)
+        cv.PolyLine(im,[sparse_shape_contour],1,cv.CV_RGB(0,0,255),1)               
+        cv.ShowImage("Sparse_shape_contour model",im)
+        cv.WaitKey()
+        cv.DestroyWindow("Sparse_shape_contour model")
+        print "/************EndOfTest*************/"
+        #"""
+        
         #Optimize
+        # Orientation phase 
         if self.ORIENT_OPT:
+            self.printout("ORIENTATION OPTIMIZATION")
             init_model = Models.Orient_Model(model,pi/2)
             orient_model_finished = self.black_box_opt(model=init_model,contour=shape_contour,num_iters = self.num_iters,delta=init_model.preferred_delta(),epsilon = 0.01,mode="orient",image=img) 
+            """ DEBUG
+            print "/**************Test****************/"
+            cv.NamedWindow("Orientation phase: final model")
+            im = cv.CloneImage(img_annotated)
+            cv.PolyLine(im,[orient_model_finished.polygon_vertices_int()],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Orientation phase: final model",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Orientation phase: final model")
+            print "/************EndOfTest*************/"
+            #"""
             model_oriented = orient_model_finished.transformed_model()
         else:
             model_oriented = model
-       
+            
+        # Symmetric phase 
         if self.SYMM_OPT:
-           self.printout("SYMMETRIC OPTIMIZATION")
-           new_model_symm = self.black_box_opt(model=model_oriented,contour=shape_contour,num_iters = self.num_iters,delta=model.preferred_delta(),epsilon = 0.01,mode="symm",image=img)
+            self.printout("SYMMETRIC OPTIMIZATION")
+            new_model_symm = self.black_box_opt(model=model_oriented,contour=shape_contour,num_iters = self.num_iters,delta=model.preferred_delta(),epsilon = 0.01,mode="symm",image=img)
+            """ DEBUG
+            print "/**************Test****************/"
+            cv.NamedWindow("Symmetric phase: final model")
+            im = cv.CloneImage(img_annotated)
+            cv.PolyLine(im,[new_model_symm.polygon_vertices_int()],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Symmetric phase: final model",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Symmetric phase: final model")
+            print "/************EndOfTest*************/"
+            #"""
         else:
             new_model_symm = model_oriented    
         if SHOW_SYMM_MODEL:
-           new_model_symm.draw_to_image(img=img_annotated,color=cv.CV_RGB(0,255,0))
+            new_model_symm.draw_to_image(img=img_annotated,color=cv.CV_RGB(0,255,0))
+        
+        # Asymmetric phase  
         model=new_model_symm.make_asymm()
         if self.HIGH_EXPLORATION:
             exp_factor = 3.0
         else:
             exp_factor = 1.5
         if self.ASYMM_OPT:
+            self.printout("ASYMMETRIC OPTIMIZATION")
             new_model_asymm = self.black_box_opt(model=model,contour=shape_contour,num_iters=self.num_iters,delta=model.preferred_delta(),exploration_factor=exp_factor,fine_tune=False,mode="asymm",image=img)
+            """ DEBUG
+            print "/**************Test****************/"
+            cv.NamedWindow("Asymmetric phase: final model")
+            im = cv.CloneImage(img_annotated)
+            cv.PolyLine(im,[new_model_symm.polygon_vertices_int()],1,cv.CV_RGB(0,0,255),1)               
+            cv.ShowImage("Asymmetric phase: final model",im)
+            cv.WaitKey()
+            cv.DestroyWindow("Asymmetric phase: final model")
+            print "/************EndOfTest*************/"
+            #"""
         else:
             new_model_asymm = model
         
+        #Final tune phase
         if self.FINE_TUNE:
+            self.printout("FINAL TUNE")
             #tunable_model = model_oriented.make_tunable()
             tunable_model = new_model_asymm.make_tunable()
             final_model = self.black_box_opt(model=tunable_model,contour=shape_contour,num_iters=self.num_iters,delta=5.0,exploration_factor=1.5,fine_tune=False,image=img)
@@ -163,40 +279,73 @@ class ShapeFitter:
         else:
             final_model = new_model_asymm
         final_model.draw_to_image(img=img_annotated,color=cv.CV_RGB(255,0,255))
+        
+        # Find nearest points 
         nearest_pts = []
+
         for vert in final_model.polygon_vertices():
             nearest_pt = min(shape_contour,key=lambda pt: Vector2D.pt_distance(pt,vert))
             cv.Circle(img_annotated,nearest_pt,5,cv.CV_RGB(255,255,255),3)
             nearest_pts.append(nearest_pt)
                 
         fitted_model = Models.Point_Model_Contour_Only_Asymm(*nearest_pts)
-        #fitted_model = final_model
+
         if SHOW_FITTED:
             fitted_model.draw_to_image(img=img_annotated,color=cv.CV_RGB(0,255,255))
         return (nearest_pts,final_model,fitted_model)
-    
-
-        
         
     def black_box_opt(self,model,contour, delta = 0.1, num_iters = 100, epsilon = 0.001,exploration_factor=1.5,fine_tune=False,num_fine_tunes=0,mode="asymm",image=None):
-    
-        epsilon = 0.001
+        epsilon = 1
+        visMult = 10**8
         score = -1 * model.score(contour,image)
-        self.printout("Initial score was %f"%score)
+        self.printout("Initial score was %f"%(score*visMult))
         params = model.params()
         deltas = [delta for p in params]
+        # visualisation 
         if(self.SHOW):
             cv.NamedWindow("Optimizing")
             img = cv.CloneImage(model.image)
-            model.from_params(params).draw_to_image(img,cv.CV_RGB(255,0,0))
+            tmpModel = model.from_params(params)
+            model.draw_to_image(img,cv.CV_RGB(0,255,0))
+            if(tmpModel != None):
+                tmpModel.draw_to_image(img,cv.CV_RGB(255,0,0))
             cv.ShowImage("Optimizing",img)
             cv.WaitKey(50)
+        # optimalization of chosen parameter
+        #logging.info('pD;pnS;nD;nnS;bS')
+        bi = datetime.now()
         for it in range(num_iters):
             self.printout("Starting iteration number %d"%it)
             for i in range(len(params)):
+                """DEBUG
+                cv.NamedWindow("Opt step")
+                img = cv.CloneImage(image)
+                model.from_params(params).draw_to_image(img,cv.CV_RGB(255,0,0))
+                cv.ShowImage("Opt step",img)
+                #"""
+                #pD = nD = nnS = pnS = 0; #Debug
                 new_params = list(params)
+                #pD = deltas[i] #Debug
                 new_params[i] += deltas[i]
-                new_score = -1 * model.from_params(new_params).score(contour, image)
+                tmpModel = model.from_params(new_params)
+                if(tmpModel != None):
+                    new_score = -1 * tmpModel.score(contour, image)
+                else:
+                    new_score = score - 1
+                """DEBUG
+                if(tmpModel != None):
+                    tmpModel.draw_to_image(img,cv.CV_RGB(0,255,0))
+                    cv.ShowImage("Opt step",img)
+                #"""
+                """DEBUG
+                cv.NamedWindow("PD")
+                img = cv.CloneImage(image)
+                tmpModel.draw_to_image(img,cv.CV_RGB(255,0,0))
+                cv.ShowImage("PD",img)
+                cv.WaitKey()
+                cv.DestroyWindow("PD")
+                #"""
+                #pnS = new_score #Debug
                 if new_score > score:
                     params = new_params
                     score = new_score
@@ -204,18 +353,43 @@ class ShapeFitter:
                 else:
                     deltas[i] *= -1
                     new_params = list(params)
+                    #nD = deltas[i] #Debug
                     new_params[i] += deltas[i]
-                    new_score = -1 * model.from_params(new_params).score(contour,image)
+                    tmpModel = model.from_params(new_params)
+                    if(tmpModel != None):
+                        new_score = -1 * tmpModel.score(contour, image)
+                    else:
+                        new_score = score - 1
+                    """DEBUG
+                    if(tmpModel != None):
+                        tmpModel.draw_to_image(img,cv.CV_RGB(0,0,255))
+                        cv.ShowImage("Opt step",img)
+                    #"""                        
+                    """DEBUG
+                    cv.NamedWindow("ND")
+                    img = cv.CloneImage(image)
+                    tmpModel.draw_to_image(img,cv.CV_RGB(255,0,0))
+                    cv.ShowImage("ND",img)
+                    cv.WaitKey()
+                    cv.DestroyWindow("ND")
+                    #"""
+                    #nnS = new_score #Debug
                     if new_score > score:
                         params = new_params
                         score = new_score
                         deltas[i] *= exploration_factor  
                     else:
                         deltas[i] *= 0.5
-            self.printout("Current best score is %f"%score)
+                #logging.info('%f;%f;%f;%f;%f'%(pD,pnS*visMult,nD,nnS*visMult,score*visMult)) #Debug
+                #cv.WaitKey(200) #DEBUG
+            
+                
+            self.printout("Current best score is %f"%(score*visMult))
             if(self.SHOW):
                 img = cv.CloneImage(model.image)
-                model.from_params(params).draw_to_image(img,cv.CV_RGB(255,0,0))
+                tmpModel = model.from_params(params)
+                if(tmpModel != None):
+                    tmpModel.draw_to_image(img,cv.CV_RGB(255,0,0))
                 if SAVE_ITERS:
                     cv.SaveImage("%s_iter_%d.png"%(mode,it),img)
                 cv.ShowImage("Optimizing",img)
@@ -223,6 +397,9 @@ class ShapeFitter:
             if max([abs(d) for d in deltas]) < epsilon:
                 self.printout("BREAKING")
                 break
+        #cv.DestroyWindow("Opt step") #DEBUG  
+        logging.info("Black box optimalization time %s"%str(datetime.now()-bi))
+        logging.info("Black box optimalization score %s"%str(score*visMult))
         return model.from_params(params)
         
     def printout(self,str):
@@ -239,6 +416,8 @@ def draw_line(img,pt1,pt2):
 def draw_pt(img,pt, color=None):
     if not color:
         color = cv.CV_RGB(255,0,0)
+    if type(pt[0]) != int:
+        pt = (int(pt[0]),int(pt[1]))
     cv.Circle(img,pt,5,color,-1)
 
 def make_sparse(contour,num_pts = 1000):
@@ -264,6 +443,19 @@ def get_top(shape,center,theta):
         angle = theta
         scale = 0
         (r_x,r_y,r_w,r_h) = cv.BoundingRect(shape)
+        
+        """ DEBUG
+        print "/**************get_top****************/"
+        cv.NamedWindow("Debug window")
+        img = cv.CreateImage((r_w+400,r_h+200),8,3)
+        [draw_pt(img,pt,(0,0,255)) for pt in shape]
+        cv.Rectangle(img,(r_x,r_y),(r_x+r_w,r_y+r_h),cv.CV_RGB(0,0,255),2)
+        cv.ShowImage("Debug window",img)
+        cv.WaitKey()
+        cv.DestroyWindow("Debug window")
+        print "/************eo get_top*************/"
+        #"""
+
         if SCALE_METHOD == AXIS:
             top_pt = center
             best_scale = 1

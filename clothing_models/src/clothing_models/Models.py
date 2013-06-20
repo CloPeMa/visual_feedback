@@ -27,7 +27,7 @@ def make_sparse(contour,num_pts = 1000):
 
 #Abstract model class        
 class Model:
-    def name(semf):
+    def name(self):
         abstract
     def preferred_delta(self):
         return 35.0
@@ -48,11 +48,10 @@ class Model:
             segs.append(make_seg(verts[i-1],v))
         return segs
         
-    def vertices_dense(self,density=10,length=10,constant_length=False,contour_mode=False):
+    def vertices_dense(self,density=10,length=10,constant_length=False,contour_mode=False,includeFoldLine = True):
         vertices = self.polygon_vertices()
-        
         if self.contour_mode():
-            sil = self.get_silhouette(vertices,num_pts=density*len(self.sides()))
+            sil = self.get_silhouette(vertices,num_pts=density*len(self.sides()),includeFoldLine=includeFoldLine)
             return sil
         
         output = []    
@@ -74,6 +73,7 @@ class Model:
         return output
     
     def score(self,contour=None, image=None):
+        
         if self.beta() == 1:
             score = self.contour_score(contour)
         elif self.beta() == 0:
@@ -110,6 +110,8 @@ class Model:
         contour_dist_energy /= float(self.dist_fxn(max(self.image.width,self.image.height)))
         
         energy = model_dist_param * model_dist_energy + contour_dist_param * contour_dist_energy
+
+        
         return energy
         
     def nearest_neighbors_fast(self,model_contour,sparse_contour):
@@ -120,7 +122,7 @@ class Model:
         return [sqrt(dist) for dist in dists]
 
     def dist_fxn(self,val):
-        return val**2
+        return val**4 
 
     def beta(self):
         return 1 
@@ -142,11 +144,22 @@ class Model:
         abstract
 
     #Simple hack to get the outer contour: draw it on a white background and find the largest contour            
-    def get_silhouette(self,vertices,num_pts):
+    def get_silhouette(self,vertices,num_pts,includeFoldLine):
         storage = cv.CreateMemStorage(0)
         black_image = cv.CreateImage(cv.GetSize(self.image),8,1)
         cv.Set(black_image,cv.CV_RGB(0,0,0))
-        self.draw_contour(black_image,cv.CV_RGB(255,255,255),2)
+        self.draw_contour(black_image,cv.CV_RGB(255,255,255),2,includeFoldLine)
+        """ DEBUG
+        print "/**************get_silhouette****************/"
+        #tmpV = [(int(pt[0]),int(pt[1])) for pt in vertices]
+        cv.NamedWindow("get_silhouette window")
+        img = cv.CloneImage(black_image)
+        #cv.PolyLine(img,[tmpV],1,cv.CV_RGB(0,0,255),1)               
+        cv.ShowImage("get_silhouette window",img)
+        cv.WaitKey()
+        cv.DestroyWindow("get_silhouette window")
+        print "/************get_silhouette*************/"
+        #"""
         #cv.PolyLine(black_image,[vertices],4,cv.CV_RGB(255,255,255),0)
         contour = cv.FindContours   ( black_image, storage,
                                     cv.CV_RETR_LIST, cv.CV_CHAIN_APPROX_NONE, (0,0))
@@ -169,13 +182,13 @@ class Model:
         max_y = max(ys)
         return (0.5*(min_x + max_x),0.5*(min_y + max_y))
         
-    def translate(self,trans):
+    def translate(self,trans,update_initial_model=False):
         abstract
         
-    def rotate(self,angle,origin=None):
+    def rotate(self,angle,origin=None,update_initial_model=False):
         abstract
         
-    def scale(self,amt,origin=None):
+    def scale(self,amt,origin=None,update_initial_model=False):
         abstract
     
     def params(self):
@@ -237,7 +250,6 @@ class Model:
 #Abstract class for a model which is fully defined by its points (i.e., has no other parameters like symmline)
 class Point_Model(Model):
     def __init__(self,*vertices_and_params):
-        
         try:
             assert len(vertices_and_params) == len(self.variable_pt_names()) + len(self.variable_param_names())
         except Exception,e:
@@ -275,15 +287,15 @@ class Point_Model(Model):
         
 
                 
-    def translate(self,trans):
+    def translate(self,trans,update_initial_model=False):
         self.vertices = translate_pts(self.vertices,trans)
         
-    def rotate(self,angle,origin=None):
+    def rotate(self,angle,origin=None,update_initial_model=False):
         if not origin:
             origin = self.center()
         self.vertices = rotate_pts(self.vertices,angle,origin)
         
-    def scale(self,amt,origin=None):
+    def scale(self,amt,origin=None,update_initial_model=False):
         if not origin:
             origin = self.center()
         self.vertices = scale_pts(self.vertices,amt,origin)
@@ -298,13 +310,17 @@ class Point_Model(Model):
                 rel_pt = self.__getattr__(rel_pt_name)()
                 dx = pt_x(pt) - pt_x(rel_pt)
                 dy = pt_y(pt) - pt_y(rel_pt)
+                #print name + ' dx={0} dy={1}.'.format(dx,dy) #DEBUG
                 output.append(dx)
                 output.append(dy)
             else:
+                #print name + ' dx={0} dy={1}.'.format(pt_x(pt),pt_y(pt)) #DEBUG
                 output.append(pt_x(pt))
                 output.append(pt_y(pt))
         for param in self.scalar_params:
+            #print "Scalar " + str(param) #DEBUG
             output.append(param)
+            #print "All params = " + str(output) #DEBUG
         return output
     
     #Reads in a list of x,y values, and creates a new instance of myself with those points    
@@ -313,6 +329,9 @@ class Point_Model(Model):
         x = None
         point_params = params[:2*len(self.variable_pt_names())]
         scalar_params = params[2*len(self.variable_pt_names()):]
+        #print "variable_pt_names() " + str(self.variable_pt_names()) #DEBUG
+        #print "point params " + str(point_params) #DEBUG
+        #print "scalar params " + str(scalar_params) #DEBUG
         for i,p in enumerate(point_params):
             if i%2 == 0:
                 x = p
@@ -422,6 +441,7 @@ class Orient_Model(Point_Model):
         
     def preferred_delta(self):
         return 0.1
+        #return pi/4
         
     def transformed_model(self):
         model_new = self.initial_model.from_params(self.initial_model.params())
@@ -442,9 +462,53 @@ class Point_Model_Folded(Point_Model):
         self.initial_model = initial_model
         self.image = None
         Point_Model.__init__(self,*pts)
-
+    
     def name(self):
         return "Folded " + self.initial_model.name()
+        
+    def contour_score(self,contour):
+        sparse_contour = make_sparse(contour,1000)
+        num_model_pts = 30*len(self.sides())
+        
+        nn=self.nearest_neighbors_fast
+        extra_sparse_contour = make_sparse(contour,num_model_pts)
+        foldConture = self.getFoldConturePoints(contour)
+        
+        """Visualisation
+        print "/**************Test****************/"
+        cv.NamedWindow("Fold conture selection")
+        img = cv.CloneImage(self.image)
+        cv.DrawContours(img,contour,cv.CV_RGB(0,0,255),cv.CV_RGB(0,0,255),0,1,8,(0,0))              
+        [cv.Circle(img,pt,2,cv.CV_RGB(255,0,0),1,8,0) for pt in foldConture]
+        cv.ShowImage("Fold conture selection",img)
+        cv.WaitKey()
+        cv.DestroyWindow("Fold conture selection")
+        print "/************EndOfTest*************/"
+        #"""
+        
+        
+        nn_model = nn(foldConture,sparse_contour)
+        model_dist_energy = sum([self.dist_fxn(dist) for dist in nn_model]) / float(len(nn_model))
+        #Normalize
+        model_dist_energy /= float(self.dist_fxn(max(self.image.width,self.image.height)))
+        
+        return model_dist_energy   
+    
+    def getFoldConturePoints(self,contour):
+        numOfPoints = 30        
+        fold_contour = []
+        (_,_,spt,ept) = self.foldline() #spt...start_point, ept...end point
+        (x,y) = (0,1)
+        x_step = (ept[x]-spt[x])/numOfPoints
+        px = spt[x]
+        for i in range(0, numOfPoints):
+          m = (ept[y]-spt[y])/(ept[x]-spt[x])
+          py = m*(px-spt[x])+spt[y]
+          pt = (int(px),int(py))  
+          px += x_step
+          fold_contour.append(pt)
+        
+        return fold_contour
         
    # def variable_param_names(self):
    #     return ["fold_angle","fold_displ"]
@@ -464,7 +528,6 @@ class Point_Model_Folded(Point_Model):
         Point_Model.set_image(self,image)
     
     def polygon_vertices(self):
-
         init_polygon_vertices = self.initial_model.polygon_vertices()
         foldline = self.foldline()
         foldseg = self.foldseg()
@@ -515,8 +578,9 @@ class Point_Model_Folded(Point_Model):
         return False
       
     def foldline(self):
-        return make_ln_from_pts(self.fold_bottom(),self.fold_top())
-        #return make_seg(self.fold_bottom(),self.fold_top())
+        #return make_ln_from_pts(self.fold_bottom(),self.fold_top())
+        return make_seg(self.fold_bottom(),self.fold_top())
+        
     def foldseg(self):
         #return make_ln_from_pts(self.fold_bottom(),self.fold_top())
         return make_seg(self.fold_bottom(),self.fold_top())
@@ -531,12 +595,23 @@ class Point_Model_Folded(Point_Model):
     def allow_intersections(self):
         return True
         
-    def draw_contour(self,img,color, thickness=2):
+    def draw_contour(self,img,color, thickness=2, includeFoldLine = True):
+        # new version sindljan
+        if(includeFoldLine):
+            self.draw_line(img,intercept(self.foldline(),horiz_ln(y=0.0)),intercept(self.foldline(),horiz_ln(y=img.height)),color, thickness)
+        val = [self.draw_point(img,pt,color) for pt in self.polygon_vertices()]
+        if(includeFoldLine):
+            self.draw_point(img,self.fold_bottom(),cv.CV_RGB(0,255,0))
+            self.draw_point(img,self.fold_top(),cv.CV_RGB(0,0,255))
+        Point_Model.draw_contour(self,img,color, thickness=2)
+        
+        """ Original version
         self.draw_line(img,intercept(self.foldline(),horiz_ln(y=0.0)),intercept(self.foldline(),horiz_ln(y=img.height)),color, thickness)
         val = [self.draw_point(img,pt,color) for pt in self.polygon_vertices()]
         self.draw_point(img,self.fold_bottom(),cv.CV_RGB(0,255,0))
         self.draw_point(img,self.fold_top(),cv.CV_RGB(0,0,255))
         Point_Model.draw_contour(self,img,color, thickness=2)
+        """ 
         
     def clone(self,init_args):
         myclone = self.__class__(self.initial_model,*init_args)
@@ -546,6 +621,29 @@ class Point_Model_Folded(Point_Model):
     def preferred_delta(self):
         return 1.0
         
+    def translate(self,trans, update_initial_model=False):
+        #if(update_initial_model):
+        #    self.initial_model.translate(trans)
+        Point_Model.translate(self,trans)
+        
+    def rotate(self,angle,origin=None, update_initial_model=False):
+        #if(update_initial_model):
+        #    self.initial_model.rotate(angle,origin)
+        Point_Model.rotate(self,angle,origin)
+        
+    def scale(self,amt,origin=None, update_initial_model=False):
+        #if(update_initial_model):
+        #    self.initial_model.scale(amt,origin)
+        Point_Model.scale(self,amt,origin)
+        
+    def from_params(self,params):
+        newModel = Point_Model.from_params(self,params)
+        if( len(self.polygon_vertices()) == len(newModel.polygon_vertices()) ):
+            return newModel
+        print "from_params - illegal model"
+        return None
+        
+               
 class Point_Model_Folded_Robust(Point_Model_Folded):
 
 
@@ -652,6 +750,7 @@ class Point_Model_Variable_Symm(Point_Model):
         myclone = self.__class__(self.symmetric,*init_args)
         myclone.set_image(self.image)
         return myclone
+        
         
 ###
 # Defining some clothing models
@@ -867,9 +966,7 @@ class Model_Shirt_Generic(Point_Model_Variable_Symm):
     def polygon_vertices(self):
         return [self.bottom_left(),self.left_armpit(),self.left_sleeve_bottom(),self.left_sleeve_top(),self.left_shoulder_top(),self.left_collar(),self.spine_top()
                ,self.right_collar(),self.right_shoulder_top(),self.right_sleeve_top(),self.right_sleeve_bottom(),self.right_armpit(),self.bottom_right()]
-               
         
-    
     #def right_collar(self):
     #    return mirror_pt(self.left_collar(),self.axis_of_symmetry())
         

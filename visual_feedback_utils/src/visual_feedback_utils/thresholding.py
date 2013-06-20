@@ -78,16 +78,34 @@ def threshold(image,bg_mode,filter_pr2,crop_rect=None,cam_info=None,listener=Non
         upper_thresh = cv.CloneImage(image_hue)
         lower_thresh = cv.CloneImage(image_hue)
         black_thresh = cv.CloneImage(image_hue)
-        cv.Threshold( image_hue, upper_thresh, 80, 255, cv.CV_THRESH_BINARY) #upper_thresh = white for all h>80, black o/w
-        cv.Threshold( image_hue, lower_thresh, 40, 255, cv.CV_THRESH_BINARY_INV) #lower_thresh = white for all h<30, black o/w 
+        cv.Threshold( image_hue, upper_thresh, 90, 255, cv.CV_THRESH_BINARY) 
+        cv.Threshold( image_hue, lower_thresh, 30, 255, cv.CV_THRESH_BINARY_INV) 
+        #7.3 cv.Threshold( image_hue, upper_thresh, 90, 255, cv.CV_THRESH_BINARY) #upper_thresh = white for all h>80, black o/w
+        #7.3 cv.Threshold( image_hue, lower_thresh, 35, 255, cv.CV_THRESH_BINARY_INV) #lower_thresh = white for all h<30, black o/w 
+        #cv.Threshold( image_hue, upper_thresh, 70, 255, cv.CV_THRESH_BINARY) 
+        #cv.Threshold( image_hue, lower_thresh, 35, 255, cv.CV_THRESH_BINARY_INV) 
         cv.Threshold( image_gray, black_thresh, 1, 255, cv.CV_THRESH_BINARY) #black_thresh = black for pure black, white o/w
+        """ DEBUG
+        cv.NamedWindow("upper_thresh")           
+        cv.ShowImage("upper_thresh",upper_thresh)
+        cv.WaitKey()
+        cv.NamedWindow("lower_thresh")           
+        cv.ShowImage("lower_thresh",lower_thresh)
+        cv.WaitKey()
+        cv.NamedWindow("black_thresh")           
+        cv.ShowImage("black_thresh",black_thresh)
+        cv.WaitKey()
+        cv.DestroyWindow("black_thresh")
+        cv.DestroyWindow("lower_thresh")
+        cv.DestroyWindow("Debug window")
+        #"""
         #Filter out the green band of the hue
         cv.Or(upper_thresh,lower_thresh,image_thresh) #image_thresh = white for all h<30 OR h>80
         #Filter out pure black, for boundaries in birdseye
         cv.And(image_thresh, black_thresh, image_thresh) #image_thresh = white for all non-pure-black pixels and (h<30 or h>80)
         
     elif bg_mode==WHITE_BG:
-        cv.Threshold(image_gray, image_thresh, 250,255, cv.CV_THRESH_BINARY_INV) #image_gray = white for all non-super white, black o/w
+        cv.Threshold(image_gray, image_thresh, 170,255, cv.CV_THRESH_BINARY_INV) #image_gray = white for all non-super white, black o/w
     elif bg_mode==YELLOW_BG:
         upper_thresh = cv.CloneImage(image_hue)
         lower_thresh = cv.CloneImage(image_hue)
@@ -110,7 +128,7 @@ def threshold(image,bg_mode,filter_pr2,crop_rect=None,cam_info=None,listener=Non
         cv.Or(upper_thresh,lower_thresh,image_thresh) #image_thresh = white for all h outside range
         #Filter out pure black, for boundaries in birdseye
         cv.And(image_thresh, black_thresh, image_thresh) #image_thresh = white for all non-pure-black pixels and h outside range)
-        cv.Erode(image_thresh, image_thresh)#Opening to remove noise
+        cv.Erode(image_thresh, image_thresh) #Opening to remove noise
         cv.Dilate(image_thresh, image_thresh)
     #set all pixels outside the crop_rect to black
     if crop_rect:

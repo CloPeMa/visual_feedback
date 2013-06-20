@@ -25,7 +25,14 @@ def pt_scale(pt,scale):
 
 def pt_center(pt1,pt2):
     return pt_scale(pt_sum(pt1,pt2),0.5)
-    
+
+def pt_seg_distance(pt,seg):
+    #mathworld.wolfram.com/Point-LineDistance2-Dimensional.html
+    (px,py) = pt
+    (sx1,sy1) = seg[2]
+    (sx2,sy2) = seg[3]
+    dist = abs((sx2-sx1)*(sy1-py)-(sx1-px)*(sy2-sy1))/sqrt((sx2-sx1)**2+(sy2-sy1)**2)
+    return dist
     
 def dot_prod(pt1,pt2):
     return pt1[0]*pt2[0]+pt1[1]*pt2[1]
